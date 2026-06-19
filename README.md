@@ -4,6 +4,33 @@ This repository contains automation scripts and utilities for converting learnin
 
 This project is developed entirely through ViveCoding. The code is provided as-is, mainly for personal automation, experimentation, and learning purposes. No guarantee is made regarding correctness, stability, maintainability, or compatibility. Users should review, test, and modify the code before using it in their own workflows.
 
+## Sheet to Anki
+
+Start the local web panel:
+
+```powershell
+.\run_web_panel.ps1
+```
+
+Then open `http://127.0.0.1:8765`, drag in an Excel (`.xlsx`, `.xlsm`, `.xls`),
+CSV, or TXT file, choose the front/back columns, and generate an Anki-ready TXT
+file.
+
+Use the PowerShell launcher on Windows:
+
+```powershell
+.\run_sheet_to_anki.ps1 input.xlsx --sheet Sheet1 --front 正面列名 --back 背面列名 --output anki_cards.txt
+```
+
+On a new computer, the launcher checks for a project-local `.venv`. If it is
+missing, it finds or installs Python 3 with `winget`, creates `.venv`, installs
+`requirements.txt` into that isolated environment only, and then runs the
+converter. Later runs reuse `.venv` and only reinstall dependencies when
+`requirements.txt` changes. The launchers never install Python packages into the
+user's system Python environment.
+
+The generated `.txt` file is tab-separated and can be imported directly by Anki.
+
 
 
 ## Disclaimer
