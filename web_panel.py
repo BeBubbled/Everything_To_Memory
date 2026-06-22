@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import io
+import os
+import socket
+import threading
 import uuid
+import webbrowser
 from pathlib import Path
 
 import pandas as pd
 from flask import Flask, jsonify, render_template, request, send_file
+from werkzeug.serving import make_server
 from werkzeug.utils import secure_filename
 
 from sheet_to_anki import SheetToAnkiError, read_table, require_columns, clean_cell
@@ -39,6 +44,10 @@ def find_upload(token: str) -> Path:
 def table_columns(path: Path, sheet: str | None = None) -> list[str]:
     df = read_table(path, sheet)
     return [str(column) for column in df.columns]
+
+
+def is_excel_file(path: Path) -> bool:
+    return path.suffix.lower() in {".xlsx", ".xlsm", ".xls"}
 
 
 def excel_sheets(path: Path) -> list[str]:
@@ -75,7 +84,7 @@ def inspect_file():
     uploaded.save(path)
 
     try:
-        sheets = excel_sheets(path) if suffix == ".xlsx" else []
+        sheets = excel_sheets(path) if is_excel_file(path) else []
         columns = table_columns(path, sheets[0] if sheets else None)
     except SheetToAnkiError as exc:
         path.unlink(missing_ok=True)
@@ -117,6 +126,8 @@ def generate_cards():
     data = request.get_json(silent=True) or {}
     token = str(data.get("token", ""))
     sheet = data.get("sheet")
+    front_sheet = data.get("frontSheet", sheet)
+    back_sheet = data.get("backSheet", sheet)
     front = str(data.get("front", ""))
     back = str(data.get("back", ""))
 
@@ -125,8 +136,10 @@ def generate_cards():
 
     try:
         path = find_upload(token)
-        df = read_table(path, str(sheet) if sheet else None)
-        require_columns(df, front, back)
+        front_df = read_table(path, str(front_sheet) if front_sheet else None)
+        back_df = read_table(path, str(back_sheet) if back_sheet else None)
+        require_columns(front_df, front)
+        require_columns(back_df, back)
     except SheetToAnkiError as exc:
         return json_error(str(exc))
     except Exception as exc:  # pragma: no cover - defensive UI boundary
@@ -134,9 +147,10 @@ def generate_cards():
 
     output = io.StringIO()
     count = 0
-    for _, row in df.iterrows():
-        front_value = clean_cell(row[front])
-        back_value = clean_cell(row[back])
+    row_count = min(len(front_df), len(back_df))
+    for index in range(row_count):
+        front_value = clean_cell(front_df.iloc[index][front])
+        back_value = clean_cell(back_df.iloc[index][back])
         if not front_value or not back_value:
             continue
         output.write(f"{front_value}\t{back_value}\n")
@@ -157,8 +171,56 @@ def generate_cards():
     )
 
 
+def open_browser_when_ready(url: str) -> None:
+    if os.environ.get("WEB_PANEL_OPEN_BROWSER", "1") == "0":
+        return
+    threading.Timer(0.35, webbrowser.open, args=(url,)).start()
+
+
+def can_bind_port(host: str, port: int) -> tuple[bool, str | None]:
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as test_socket:
+            test_socket.bind((host, port))
+        return True, None
+    except OSError as exc:
+        return False, str(exc)
+
+
 def main() -> None:
-    app.run(host="127.0.0.1", port=8765, debug=False)
+    host = "127.0.0.1"
+    requested_port = int(os.environ.get("WEB_PANEL_PORT", "8765"))
+    port = requested_port
+
+    if requested_port != 0:
+        available, reason = can_bind_port(host, requested_port)
+        if not available:
+            port = 0
+            print(
+                f"[web-panel] Port {requested_port} is unavailable ({reason}). "
+                "Using an available local port instead.",
+                flush=True,
+            )
+
+    try:
+        server = make_server(host, port, app, threaded=True)
+    except SystemExit:
+        if port == 0:
+            raise
+        print(
+            f"[web-panel] Port {port} is unavailable. "
+            "Using an available local port instead.",
+            flush=True,
+        )
+        server = make_server(host, 0, app, threaded=True)
+
+    url = f"http://{host}:{server.server_port}/"
+    print(f"[web-panel] Ready: {url}", flush=True)
+    open_browser_when_ready(url)
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("[web-panel] Stopped.", flush=True)
 
 
 if __name__ == "__main__":

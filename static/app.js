@@ -2,14 +2,17 @@ const dropzone = document.querySelector("#dropzone");
 const fileInput = document.querySelector("#fileInput");
 const statusEl = document.querySelector("#status");
 const messageEl = document.querySelector("#message");
-const sheetField = document.querySelector("#sheetField");
-const sheetSelect = document.querySelector("#sheetSelect");
+const frontSheetField = document.querySelector("#frontSheetField");
+const frontSheetSelect = document.querySelector("#frontSheetSelect");
+const backSheetField = document.querySelector("#backSheetField");
+const backSheetSelect = document.querySelector("#backSheetSelect");
 const frontSelect = document.querySelector("#frontSelect");
 const backSelect = document.querySelector("#backSelect");
 const controls = document.querySelector("#controls");
 const generateButton = document.querySelector("#generateButton");
 
 let currentToken = null;
+let hasSheets = false;
 
 function setMessage(text, isError = false) {
   messageEl.textContent = text;
@@ -33,10 +36,32 @@ function fillSelect(select, values, preferredIndex = 0) {
   });
 }
 
+function updateGenerateAvailability() {
+  generateButton.disabled = !(
+    currentToken &&
+    frontSelect.value &&
+    backSelect.value
+  );
+}
+
+function setColumnSelect(select, columns, preferredIndex = 0) {
+  fillSelect(select, columns, preferredIndex);
+  updateGenerateAvailability();
+}
+
 function setColumns(columns) {
-  fillSelect(frontSelect, columns, 0);
-  fillSelect(backSelect, columns, Math.min(1, columns.length - 1));
-  generateButton.disabled = columns.length < 2;
+  setColumnSelect(frontSelect, columns, 0);
+  setColumnSelect(backSelect, columns, Math.min(1, columns.length - 1));
+}
+
+function setSheetFieldsVisible(isVisible) {
+  hasSheets = isVisible;
+  frontSheetField.classList.toggle("hidden", !isVisible);
+  backSheetField.classList.toggle("hidden", !isVisible);
+  if (!isVisible) {
+    frontSheetSelect.innerHTML = "";
+    backSheetSelect.innerHTML = "";
+  }
 }
 
 async function requestJson(url, options) {
@@ -65,25 +90,34 @@ async function uploadFile(file) {
 
     currentToken = data.token;
     if (data.sheets.length) {
-      sheetField.classList.remove("hidden");
-      fillSelect(sheetSelect, data.sheets, 0);
+      setSheetFieldsVisible(true);
+      fillSelect(frontSheetSelect, data.sheets, 0);
+      fillSelect(backSheetSelect, data.sheets, 0);
     } else {
-      sheetField.classList.add("hidden");
-      sheetSelect.innerHTML = "";
+      setSheetFieldsVisible(false);
     }
 
     setColumns(data.columns);
     setStatus("已载入");
-    setMessage(`${data.filename} 已载入，选择正面和背面列后生成。`);
+    setMessage(`${data.filename} 已载入，选择正面和背面来源后生成。`);
   } catch (error) {
     currentToken = null;
+    setSheetFieldsVisible(false);
+    frontSelect.innerHTML = "";
+    backSelect.innerHTML = "";
     setStatus("读取失败");
     setMessage(error.message, true);
+    updateGenerateAvailability();
   }
 }
 
-async function loadSheetColumns() {
-  if (!currentToken || !sheetSelect.value) return;
+async function loadSheetColumns(side) {
+  if (!currentToken || !hasSheets) return;
+
+  const sheetSelect = side === "front" ? frontSheetSelect : backSheetSelect;
+  const columnSelect = side === "front" ? frontSelect : backSelect;
+  const preferredIndex = side === "front" ? 0 : 1;
+  if (!sheetSelect.value) return;
 
   setStatus("读取列");
   setMessage("");
@@ -98,11 +132,13 @@ async function loadSheetColumns() {
         sheet: sheetSelect.value,
       }),
     });
-    setColumns(data.columns);
+    setColumnSelect(columnSelect, data.columns, Math.min(preferredIndex, data.columns.length - 1));
     setStatus("已载入");
   } catch (error) {
+    columnSelect.innerHTML = "";
     setStatus("读取失败");
     setMessage(error.message, true);
+    updateGenerateAvailability();
   }
 }
 
@@ -120,7 +156,9 @@ async function generateCards(event) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         token: currentToken,
-        sheet: sheetSelect.value || null,
+        sheet: hasSheets ? frontSheetSelect.value : null,
+        frontSheet: hasSheets ? frontSheetSelect.value : null,
+        backSheet: hasSheets ? backSheetSelect.value : null,
         front: frontSelect.value,
         back: backSelect.value,
       }),
@@ -149,7 +187,7 @@ async function generateCards(event) {
     setStatus("生成失败");
     setMessage(error.message, true);
   } finally {
-    generateButton.disabled = false;
+    updateGenerateAvailability();
   }
 }
 
@@ -172,5 +210,8 @@ fileInput.addEventListener("change", () => {
   uploadFile(fileInput.files[0]);
 });
 
-sheetSelect.addEventListener("change", loadSheetColumns);
+frontSheetSelect.addEventListener("change", () => loadSheetColumns("front"));
+backSheetSelect.addEventListener("change", () => loadSheetColumns("back"));
+frontSelect.addEventListener("change", updateGenerateAvailability);
+backSelect.addEventListener("change", updateGenerateAvailability);
 controls.addEventListener("submit", generateCards);

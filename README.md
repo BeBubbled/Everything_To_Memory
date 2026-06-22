@@ -12,14 +12,16 @@ Start the local web panel:
 .\run_web_panel.ps1
 ```
 
-Then open `http://127.0.0.1:8765`, drag in an Excel (`.xlsx`, `.xlsm`, `.xls`),
-CSV, or TXT file, choose the front/back columns, and generate an Anki-ready TXT
+The launcher opens the local web panel automatically when it is ready. If port
+`8765` is unavailable on Windows, it chooses another local port and prints the
+actual URL in the PowerShell window. Drag in an Excel (`.xlsx`, `.xlsm`, `.xls`),
+CSV, or TXT file, choose separate front/back sheets and columns when needed, and generate an Anki-ready TXT
 file.
 
 Use the PowerShell launcher on Windows:
 
 ```powershell
-.\run_sheet_to_anki.ps1 input.xlsx --sheet Sheet1 --front 正面列名 --back 背面列名 --output anki_cards.txt
+.\run_sheet_to_anki.ps1 input.xlsx --front-sheet 正面Sheet --front 正面列名 --back-sheet 背面Sheet --back 背面列名 --output anki_cards.txt
 ```
 
 On a new computer, the launcher checks for a project-local `.venv`. If it is

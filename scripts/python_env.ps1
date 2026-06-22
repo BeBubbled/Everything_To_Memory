@@ -14,9 +14,37 @@ function Invoke-BootstrapChecked {
         [string[]]$Arguments
     )
 
-    & $FilePath @Arguments
+    & $FilePath @Arguments | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) {
         throw "Command failed with exit code ${LASTEXITCODE}: $FilePath $($Arguments -join ' ')"
+    }
+}
+
+function Test-BootstrapPythonModule {
+    param(
+        [string]$Python,
+        [string]$ModuleName
+    )
+
+    & $Python -c "import $ModuleName" 2>$null
+    return $LASTEXITCODE -eq 0
+}
+
+function Ensure-BootstrapPip {
+    param(
+        [string]$VenvPython,
+        [string]$Prefix
+    )
+
+    if (Test-BootstrapPythonModule $VenvPython "pip") {
+        return
+    }
+
+    Write-BootstrapStep $Prefix "Project .venv is missing pip. Repairing it with ensurepip."
+    Invoke-BootstrapChecked $VenvPython @("-m", "ensurepip", "--upgrade")
+
+    if (-not (Test-BootstrapPythonModule $VenvPython "pip")) {
+        throw "Could not repair pip in project .venv. Delete the .venv folder and rerun this script."
     }
 }
 
@@ -141,6 +169,7 @@ function Sync-BootstrapDependencies {
         return
     }
 
+    Ensure-BootstrapPip $VenvPython $Prefix
     Write-BootstrapStep $Prefix "Installing dependencies into project .venv only; system Python packages will not be changed."
     Invoke-BootstrapChecked $VenvPython @("-m", "pip", "install", "--upgrade", "pip")
     Invoke-BootstrapChecked $VenvPython @("-m", "pip", "install", "-r", $Requirements)

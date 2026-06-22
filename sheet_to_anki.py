@@ -30,7 +30,18 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("input", type=Path, help="Input .xlsx or .csv file.")
     parser.add_argument(
         "--sheet",
-        help="Excel sheet name to read. Defaults to the first sheet for .xlsx.",
+        help=(
+            "Excel sheet name to read for both front and back columns. Defaults to "
+            "the first sheet for .xlsx."
+        ),
+    )
+    parser.add_argument(
+        "--front-sheet",
+        help="Excel sheet name to read for card fronts. Overrides --sheet.",
+    )
+    parser.add_argument(
+        "--back-sheet",
+        help="Excel sheet name to read for card backs. Overrides --sheet.",
     )
     parser.add_argument("--front", required=True, help="Column name for card fronts.")
     parser.add_argument("--back", required=True, help="Column name for card backs.")
@@ -139,8 +150,8 @@ def detect_txt_delimiter(sample: str) -> str | None:
         return delimiter if count else None
 
 
-def require_columns(df: pd.DataFrame, front_column: str, back_column: str) -> None:
-    missing = [name for name in (front_column, back_column) if name not in df.columns]
+def require_columns(df: pd.DataFrame, *columns: str) -> None:
+    missing = [name for name in dict.fromkeys(columns) if name not in df.columns]
     if not missing:
         return
 
@@ -183,12 +194,51 @@ def write_anki_cards(
     return written
 
 
+def write_anki_cards_from_tables(
+    front_df: pd.DataFrame,
+    back_df: pd.DataFrame,
+    front_column: str,
+    back_column: str,
+    output_path: Path,
+) -> int:
+    require_columns(front_df, front_column)
+    require_columns(back_df, back_column)
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    written = 0
+    row_count = min(len(front_df), len(back_df))
+    with output_path.open("w", encoding="utf-8", newline="\n") as output_file:
+        for index in range(row_count):
+            front = clean_cell(front_df.iloc[index][front_column])
+            back = clean_cell(back_df.iloc[index][back_column])
+            if not front or not back:
+                continue
+
+            output_file.write(f"{front}\t{back}\n")
+            written += 1
+
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv or sys.argv[1:])
 
     try:
-        df = read_table(args.input, args.sheet)
-        count = write_anki_cards(df, args.front, args.back, args.output)
+        front_sheet = args.front_sheet or args.sheet
+        back_sheet = args.back_sheet or args.sheet
+        if front_sheet == back_sheet:
+            df = read_table(args.input, front_sheet)
+            count = write_anki_cards(df, args.front, args.back, args.output)
+        else:
+            front_df = read_table(args.input, front_sheet)
+            back_df = read_table(args.input, back_sheet)
+            count = write_anki_cards_from_tables(
+                front_df,
+                back_df,
+                args.front,
+                args.back,
+                args.output,
+            )
     except SheetToAnkiError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
